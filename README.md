@@ -20,11 +20,11 @@ Additionally, various techniques were employed to achieve optimal feature select
 
 Finally, all implemented models were compiled into a table and compared using different metrics such as AUC and ACC. In conclusion, it was determined that the best model was the one based on artificial neural networks using all the variables.
 
-![](TablaComparativa.PNG)
+![](https://github.com/teresavgm/PredictiveModels-HeartDisease/blob/main/TablaComparativa.PNG)
 
 
-# Application
+# ApplicationS
 
 Finally, an application was created where input variables can be entered to predict the risk of developing heart disease.
 
-![](App/app_captura.PNG)
+![](https://github.com/teresavgm/PredictiveModels-HeartDisease/blob/main/App/App_captura.PNG)
