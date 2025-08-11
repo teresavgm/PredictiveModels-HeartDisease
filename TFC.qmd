@@ -1,0 +1,2187 @@
+---
+title: "Algoritmos de Predicción de enfermedad cardiaca"
+author: "Teresa Vega Martínez"
+date: "2025-05-09"
+format:
+  html:
+    code-fold: true
+    theme: cerulean
+    highlight: tango
+    toc: true
+    toc-floating: true  
+    number-sections: true
+    self-contained: true
+---
+
+# Introducción
+
+
+Las enfermedades cardiovasculares representan una de las principales causas de mortalidad a nivel mundial. Su detección temprana es clave para aplicar tratamientos oportunos y reducir significativamente el riesgo de complicaciones graves o muerte. En este contexto, los modelos predictivos basados en datos clínicos y demográficos han cobrado gran relevancia como herramientas de apoyo en el proceso de cribado y diagnóstico.
+
+El presente proyecto se centra en el análisis de un conjunto de datos clínicos recogidos de pacientes adultos con el objetivo de desarrollar un modelo capaz de predecir la probabilidad de presentar indicios compatibles con enfermedad cardiovascular. Para ello, se emplearán técnicas de análisis estadístico y aprendizaje automático, considerando variables relevantes como la edad, el sexo, características del dolor torácico, niveles de colesterol y glucosa, y resultados de pruebas diagnósticas como el electrocardiograma y la prueba de esfuerzo.
+
+El desarrollo del modelo incluirá un proceso riguroso de exploración y preprocesamiento de los datos, la selección de las variables más informativas, la evaluación de distintas estrategias de modelado y validación, y finalmente, la implementación de una aplicación funcional que permita aplicar el modelo a nuevos casos clínicos.
+
+## Objetivo
+
+El objetivo principal de este proyecto es desarrollar un modelo predictivo que permita estimar el riesgo de enfermedad cardiovascular en pacientes adultos, a partir de un conjunto de variables clínicas y demográficas. Para ello se implementarán varios algoritmos de aprendizaje diferentes combinados implementado doble validación cruzada.Los algotimos que se van a implementar son:
+
+- Redes Neuronales artificiales
+- Máquinas de vectores de soporte
+- Árboles de decisión
+
+
+Además, se implementarán distintos métodos para la selección de variables. 
+
+
+# Datos
+
+El conjunto de datos con el que se va a trabajar en este proyecto cuenta con 1500 instancias y 12 variables.
+
+
+
+```{r LecturaDeDatos, message= FALSE, echo=TRUE}
+library(dplyr)
+
+datos <- read.table("conjunto_corazon_final_23.csv", header = TRUE, sep = ",")
+
+```
+
+
+A continuación se muestran las 10 primeras filas del conjunto de datos:
+
+
+```{r MuestraDeDatos,message= FALSE,  echo=TRUE}
+
+library(DT)
+
+datatable(datos, options = list(scrollX = TRUE))
+
+```
+
+
+
+# Estadística Descriptiva
+
+En este apartado se realiza un análisis general de las distribuciones de los datos resaltando sus características más relevantes y de mayor importancia para el estudio. 
+
+A continuación se van a analizar por separado las variables numéricas y las variables categóricas.
+
+
+## Variables numéricas
+
+
+### Preprocesamiento
+
+
+#### Factorización
+
+Algunas variables han sido facotrizadas porque, aunque eran numéricas, representan categorías con pocos valores posibles y no cantidades continuas. Al tratarlas como factores, el modelo reconoce que son variables categóricas, evitando interpretar erróneamente relaciones numéricas o de orden entre los valores. Esto mejora la adecuación del modelo al tipo real de dato y la interpretación de los resultados.
+
+Las variables factorizadas son:
+
+- `ecg_reposo`
+- `tipo_dolor_pecho`
+- `angina_ejercicio`
+
+
+#### Valores erroneos
+
+
+Se identificaron varios valores erróneos repetidos múltiples veces en las variables numéricas que no tenían sentido clínico ni estadístico, por lo que fueron reemplazados por valores faltantes (NA) para evitar sesgar el análisis y el modelo predictivo. 
+
+En particular, en la variable `Colesterol` se detectaron valores imposibles como 0 y 1132.3, en `Edad` un valor excesivamente alto (146.7), y en `presion_reposo` y `frec_max` valores de 0, que no son plausibles para esas medidas. Además, en `frec_max` apareció también un valor excesivamente alto e imposible repetido varias veces (392.6616578087427). En la variable `descenso_st` se encontraron valores erróneos negativos fuera del rango esperado. Estos datos fueron tratados como NA para garantizar la calidad y coherencia del dataset, permitiendo un análisis más fiable y un mejor desempeño del modelo.
+
+
+```{r, message=FALSE }
+
+library(dplyr)
+
+# Factorizar angina_ejercicio
+datos$angina_ejercicio <- factor(datos$angina_ejercicio)
+
+datos$ecg_reposo <- factor(datos$ecg_reposo)
+# table(datos$ecg_reposo)
+
+datos$tipo_dolor_pecho <- factor(datos$tipo_dolor_pecho)
+
+
+# Corrección de valores erroneos
+
+#EDAD
+datos$edad[datos$edad == 146.73949734815542] <- NA
+
+# COLESTEROL
+datos <- datos %>%
+  mutate(colesterol = if_else(colesterol == 0, NA_real_, colesterol))
+
+datos <- datos %>%
+  mutate(colesterol = if_else(colesterol ==1132.3178753587172, NA_real_, colesterol))
+
+# PRESION REPOSO	
+
+datos <- datos %>%
+  mutate(presion_reposo = if_else(presion_reposo == 0,NA_real_, presion_reposo))
+
+datos <- datos %>%
+  mutate(presion_reposo = if_else(presion_reposo == 317.03696251219316,NA_real_, presion_reposo))
+
+# frec_max  
+datos<- datos %>%
+  mutate(frec_max = if_else(frec_max==392.6616578087427,NA_real_, frec_max))
+
+# descenso_st  
+datos<- datos %>%
+  mutate(descenso_st = if_else(descenso_st==12.211808063042684,NA_real_, descenso_st))
+
+
+datos<- datos %>%
+  mutate(descenso_st = if_else(descenso_st < 0,NA_real_, descenso_st))
+
+
+
+
+```
+
+
+### Análisis estadístico
+
+```{r, warning=FALSE}
+
+library(knitr)
+library(tidyr)
+
+numerical_vars <- c("edad", "presion_reposo", "colesterol",  "frec_max", "descenso_st")
+
+# Filtrar solo las variables numéricas seleccionadas
+dataset_numerico <- datos %>% select(all_of(numerical_vars))
+
+tabla_resumen <- dataset_numerico %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valor") %>%
+  group_by(Variable) %>%
+  summarise(
+    Media = mean(Valor, na.rm = TRUE),
+    Mediana = median(Valor, na.rm = TRUE),
+    Desv_Est = sd(Valor, na.rm = TRUE),
+    Min = min(Valor, na.rm = TRUE),
+    Q1 = quantile(Valor, probs = 0.25, na.rm = TRUE),
+    Q3 = quantile(Valor, probs = 0.75, na.rm = TRUE),
+    Max = max(Valor, na.rm = TRUE),
+    N_Missing = sum(is.na(Valor))  # Contar valores NA
+  ) %>%
+  ungroup()
+
+# Mostrar la tabla en el informe con kable
+kable(tabla_resumen, caption = "Resumen de estadísticas descriptivas de las variables numéricas")
+
+```
+
+Respecto a la información contenida en la tabla, se pueden destacar los siguientes aspectos:
+
+- `Colesterol`: Alta dispersión y presencia de outliers. Tiene muchos valores faltantes, en general debe tratarse con cuidado.
+
+- `Descenso_st`: Distribución asimétrica y valores atípicos.
+
+- `Edad`: Variable estable y simétrica. Número de valores faltantes moderados.
+
+- `Frec_max`: Alta variabilidad. No tiene demasiados valores faltantes.
+
+- `Presión en reposo`: Distribución razonable, pero con algunos extremos y valores ausentes.
+
+```{r, echo=TRUE,message=FALSE,  results='asis', warning=FALSE}
+# Librerías necesarias
+library(ggplot2)
+library(gridExtra) 
+
+
+numerical_vars <-  c("edad", "tipo_dolor_pecho", "presion_reposo", "colesterol", "ecg_reposo", "frec_max", "descenso_st", "angina_ejercicio" )
+
+# Variables que queremos representar como histogramas con intervalos
+interval_vars <- c("edad", "presion_reposo", "colesterol", "frec_max", "descenso_st")
+
+# Variables que queremos representar con barras separadas, factorizadas
+factorizadas <- c("tipo_dolor_pecho", "angina_ejercicio",  "ecg_reposo" )
+
+
+
+num_tab_ids <- paste0("tab_", numerical_vars)
+
+css <- "
+<style>
+  .tab-container { 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 7px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #ccc;
+  }
+  .tab { 
+    padding: 12px 18px;
+    cursor: pointer; 
+    background: #ddd;
+    border: 1px solid #ccc;
+    border-radius: 8px 8px 0 0;
+    font-weight: bold;
+    transition: background 0.3s ease;
+  }
+  .tab.active { 
+    background: #007BFF; 
+    color: white;
+    border-bottom: none;
+  }
+  .tab:hover { 
+    background: #0056b3; 
+    color: white;
+  }
+  .tab-content { 
+    display: none;
+    padding: 20px;
+    text-align: center;
+    clear: both; /* Evita que las imágenes se superpongan */
+  }
+  .tab-content.active { 
+    display: block;
+  }
+  .tab-content img { 
+    width: 100%; 
+    max-width: 800px; /* Ajuste para que no sean demasiado grandes */
+    border-radius: 10px;
+    margin: 10px auto;
+    display: block;
+  }
+</style>
+"
+
+# JavaScript para funcionalidad de pestañas
+js <- "
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    let tabs = document.querySelectorAll('.tab');
+    let contents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', function() {
+        let target = this.getAttribute('data-target');
+
+        // Remover clases activas
+        tabs.forEach(t => t.classList.remove('active'));
+        contents.forEach(c => c.classList.remove('active'));
+
+        // Activar la pestaña y el contenido correspondiente
+        this.classList.add('active');
+        document.getElementById(target).classList.add('active');
+      });
+    });
+
+    // Activar la primera pestaña por defecto
+    if (tabs.length > 0) {
+      tabs[0].classList.add('active');
+      contents[0].classList.add('active');
+    }
+  });
+</script>
+"
+
+# Insertar CSS y JavaScript
+cat(css, js)
+```
+
+
+```{r, echo=TRUE, results='asis', warning= FALSE}
+
+
+# Crear botones de pestañas para todas las variables numéricas
+cat('<div class="tab-container">')
+for (i in seq_along(numerical_vars)) {
+  cat(sprintf('<div class="tab" data-target="%s">%s</div>', num_tab_ids[i], numerical_vars[i]))
+}
+cat('</div>')
+
+# Generar gráficos
+for (i in seq_along(numerical_vars)) {
+  var <- numerical_vars[i]
+  img_file <- paste0("num_plot_", var, ".png")
+
+  # Histograma según tipo de variable
+  if (var %in% interval_vars) {
+    hist_plot <- ggplot(datos, aes(x = .data[[var]])) +
+      geom_histogram(binwidth = 5, fill = "darkviolet", color = "white", bins = 30) +
+      labs(title = paste("Histograma de", var), x = var, y = "Frecuencia") +
+      theme_minimal() +
+      theme(text = element_text(size = 30))
+  } else{
+    hist_plot <- ggplot(datos, aes(x = factor(.data[[var]]))) +
+      geom_bar(fill = "darkblue", color = "white") +
+      labs(title = paste("Distribución de", var), x = var, y = "Frecuencia") +
+      theme_minimal() +
+      theme(text = element_text(size = 30))
+  }
+
+  
+  # Solo crear boxplot si está en interval_vars
+  if (var %in% interval_vars) {
+    box_plot <- ggplot(datos, aes(y = .data[[var]])) +
+      geom_boxplot(fill = "gold", color = "black", outlier.color = "red", outlier.size = 3) +
+      labs(title = paste("Boxplot de", var), y = var) +
+      theme_minimal() +
+      theme(text = element_text(size = 30))
+    
+    png(img_file, width = 1000, height = 1200)
+    grid.arrange(hist_plot, box_plot, ncol = 1)
+    dev.off()
+  } else {
+    
+    
+    # Solo guardar histograma si no hay boxplot
+    png(img_file, width = 1000, height = 600)
+    print(hist_plot)
+    dev.off()
+  }
+
+  # Incrustar la imagen en un div de pestaña
+  cat(sprintf('<div id="%s" class="tab-content"><img src="%s"></div>', num_tab_ids[i], img_file))
+}
+
+```
+
+
+En la grafica de la variable colesterol se puede apreciar como hay varios outliers, en general valores con un valor por encima de 450. Estos pacientes serán eliminados del conjunto de datos para evitar agregar ruido o sesgo a los modelos predictivos posteriores. La eliminación de estos pacientes no será una gran pérdida puesto que tan solo serán eliminados 9 pacientes del conjunto de datos.
+
+
+::: {.callout-note collapse="true" title="Eliminación de outliers "}
+
+```{r}
+# Eliminar outliers de colesterol
+n_original <- nrow(datos)
+datos <- subset(datos, colesterol <= 450 | is.na(colesterol))
+n_filtrado <- nrow(datos)
+
+n_eliminados <- n_original - n_filtrado
+cat("Se han eliminado", n_eliminados, "pacientes con valores de colesterol mayores a 450.\n")
+
+```
+
+
+::::
+
+
+En este trabajo se ha decidido conservar las variables numéricas en su forma continua, ya que los modelos predictivos utilizados (ANN, SVM y árboles de decisión) aprovechan mejor la información cuando las variables no se agrupan en intervalos. Mantener las variables continuas permite capturar relaciones más precisas y no lineales con la variable objetivo, especialmente en modelos como redes neuronales y SVM. 
+
+Solo las variables inherentemente categóricas, como el tipo de dolor de pecho(`tipo_dolor_pecho`), el electrocardiograma en reposo (`ecg_reposo`) y la presencia de angina inducida por el ejercicio (`angina_ejercicio`) se han tratado como factores. Esta elección favorece la capacidad predictiva del modelo sin pérdida de información.
+
+
+
+
+
+Por último, más adelante se estandarizarán los datos numéricos para poner todas las variables en la misma escala, lo cual es positivo y necesario en este caso, ya que, somo se ha comentado anteriormente, existen diferencias importantes de rango y dispersión entre ellas. Esto evita que unas variables dominen sobre otras y mejora el rendimiento de modelos sensibles a la escala, como la mayoría de los que serán implementados posteriormente.
+
+## Variables Categóricas
+
+
+El conjunto de datos consta de 4 variables categóricas.
+```{r}
+selected_vars <- c("sexo", "pendiente_st", "Enfermedad", "glucosa_ayunas" )
+
+```
+
+
+### Preprocesamiento
+
+En este apartado se han unificado las clases de las variables y se han convertido a tipo factor.
+```{r}
+#table(datos$sexo)
+
+library(dplyr)
+library(stringr)
+
+datos <- datos %>%
+  mutate(sexo = case_when(
+    str_to_lower(sexo) %in% c("hombre", "varón") ~ "Hombre",
+    str_to_lower(sexo) %in% c("mujer", "muje", "mujer ") ~ "Mujer",
+    TRUE ~ NA_character_  # para detectar valores inesperados
+  ))
+
+# pendiente_st
+
+datos <- datos %>%
+  mutate(pendiente_st = case_when(
+    str_to_lower(pendiente_st) %in% c("ascendente", "asc", "asc ") ~ "Ascendente",
+    str_to_lower(pendiente_st) %in% c("descendente", "desc", "desc ") ~ "Descendente",
+    str_to_lower(pendiente_st) %in% c("plana", "flat") ~ "Plana",
+    TRUE ~ NA_character_
+  ))
+
+
+# Enfermedad
+
+datos <- datos %>%
+  mutate(Enfermedad = case_when(
+    str_trim(Enfermedad) == "Sí" ~ "Si",
+    str_trim(Enfermedad) == "No" ~ "No",
+    str_trim(Enfermedad) == "" ~ NA_character_
+  ))
+
+
+datos <- datos %>%
+  mutate(glucosa_ayunas = case_when(
+    str_to_lower(glucosa_ayunas) %in% c("no") ~ "NO",
+    str_to_lower(glucosa_ayunas) %in% c("si", "sí") ~ "SI",
+    str_trim(Enfermedad) == "" ~ NA_character_
+  ))
+
+
+datos$glucosa_ayunas <-  factor(datos$glucosa_ayunas)
+datos$pendiente_st <-  factor(datos$pendiente_st)
+datos$sexo <-  factor(datos$sexo)
+
+datos$Enfermedad <- factor(datos$Enfermedad)
+
+```
+
+
+### Análisis estadístico
+
+```{r, echo=TRUE, results='asis'}
+
+# Insertar CSS y JavaScript
+cat(css, js)
+
+
+selected_tab_ids <- paste0("tab_", selected_vars)
+
+# Crear botones de pestañas solo para las variables seleccionadas
+cat('<div class="tab-container">')
+for (i in seq_along(selected_vars)) {
+  cat(sprintf('<div class="tab" data-target="%s">%s</div>', selected_tab_ids[i], selected_vars[i]))
+}
+cat('</div>')
+
+# Generar histogramas solo para las variables seleccionadas
+for (i in seq_along(selected_vars)) {
+  var <- selected_vars[i]
+  img_file <- paste0("hist_", var, ".png")
+  
+  # Definir el ángulo del texto en el eje X
+  angle_value <- ifelse(var == "HT_ADY_OK", 45, 0)
+  
+  # Crear y guardar el histograma 
+  png(img_file, width = 1200, height = 700)
+  plot <- ggplot(datos, aes(x = factor(.data[[var]]), fill = is.na(.data[[var]]))) +
+    geom_bar() +
+    scale_fill_manual(values = c("FALSE" = "darkblue", "TRUE" = "skyblue"), name = "Faltantes") +
+    labs(title = paste("Distribución de", var), x = var, y = "Frecuencia") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = angle_value, hjust = 1), 
+      axis.title.x = element_text(margin = margin(t = 10, b = 20)),  # MÁS ESPACIO ABAJO
+      text = element_text(size = 30)
+    )
+  print(plot)
+  dev.off()
+
+  # Incrustar la imagen en un div de pestaña
+  cat(sprintf('<div id="%s" class="tab-content"><img src="%s"></div>', selected_tab_ids[i], img_file))
+}
+
+```
+
+
+
+Es necesario resaltar el desbalance de los casos de la variable objetivo `Enfermedad`. Hay más casos de valores positivos que negativos, sin embargo, hay menos de 200 casos de diferencia entre la clase positiva y la negativa. Por esta razón, y aunque se tendrá en cuenta, este ligero desbalance no parece que vaya a afectar negativamente a los modelos predictivos que se implementarán posteriormente. 
+
+
+
+# Imputación de los datos
+
+A continuación se resolverá el problema de los valores faltantes dentro del dataset según sea lo más adecuado para cada variable.
+
+Respecto a la variable `Enfermedad`, no se va a imputar  debido a que corresponde a la variable objetivo del análisis predictivo . Imputar los valores faltantes en esta variable supondría **asignar etiquetas artificiales sin base real**, lo que puede introducir **sesgo** y **ruido** en el modelo, afectando negativamente su capacidad de generalización y precisión.
+
+Por tanto, se va a optar por excluir los registros con valores perdidos en `Enfermedad` para asegurar la integridad y validez del análisis.
+
+
+
+Por otra parte, para las distintas variables se ha optado por imputar con la media o la mediana las variables numéricas (según la distribución de la variable), y las variables categóricas se han imputado con la moda. 
+
+En el apartado anterior se vio algunas variables que tenían muchos valores faltantes, además de unas distribuciones no adecuadas para imputar con la moda. En estos casos se ha optado por imputar de forma que se mantengan las distribuciones originales para no alterar el comportamiento de la variable.
+
+
+::: {.callout-note collapse="true" title="Resultado de la imputación conservando la distribución"}
+
+```{r}
+
+# Eliminar filas con NA en la columna 'Enfermedad'
+datos <- datos[!is.na(datos$Enfermedad), ]
+
+imputar_moda_variable <- function(datos, variable) {
+  # Extrae la columna
+  columna <- datos[[variable]]
+  
+  # Calcular la moda (ignorando NA)
+  moda <- names(sort(table(columna), decreasing = TRUE))[1]
+  
+  # Imputar los NA con la moda
+  columna[is.na(columna)] <- moda
+  
+  # Asignar la columna de nuevo al data frame
+  datos[[variable]] <- columna
+  
+  return(datos)
+}
+
+datos<- imputar_moda_variable(datos,"sexo")
+datos<-imputar_moda_variable(datos, "ecg_reposo")
+
+```
+
+
+```{r}
+
+# Función para imputar valores faltantes manteniendo la distribución original
+
+imputar_con_distribucion <- function(data, variable) {
+  cat("\n-------------------------------\n")
+  cat("Variable:", variable, "\n")
+
+  # Obtener la variable como vector
+  vec <- data[[variable]]
+  
+  # Mostrar distribución original (sin NA)
+  cat("Distribución original (sin NA):\n")
+  original_dist <- table(vec, useNA = "no")
+  print(prop.table(original_dist))
+  
+  # Contar valores NA
+  num_na <- sum(is.na(vec))
+  cat("Valores NA:", num_na, "\n")
+  
+  if (num_na > 0) {
+    # Calcular proporciones
+    proporciones <- prop.table(original_dist)
+    
+    # Generar valores aleatorios en proporción
+    set.seed(123)  # reproducibilidad
+    imputaciones <- sample(
+      names(proporciones), 
+      size = num_na, 
+      replace = TRUE, 
+      prob = proporciones
+    )
+    
+    # Reemplazar NA en el vector
+    vec[is.na(vec)] <- imputaciones
+    
+    # Guardar los cambios de vuelta al dataset
+    data[[variable]] <- vec
+  } else {
+    cat("No hay valores faltantes.\n")
+  }
+  
+  # Mostrar nueva distribución
+  cat("Distribución después de imputar:\n")
+  nueva_dist <- table(data[[variable]])
+  print(prop.table(nueva_dist))
+  
+  return(data)
+}
+
+datos<-imputar_con_distribucion(datos,"pendiente_st")
+datos<-imputar_con_distribucion(datos,"tipo_dolor_pecho")
+datos<-imputar_con_distribucion(datos,"glucosa_ayunas")
+datos<- imputar_con_distribucion(datos,"angina_ejercicio")
+
+
+
+
+imputar_mediana <- function(data, variable) {
+  # Calcular la mediana ignorando NA
+  mediana <- median(data[[variable]], na.rm = TRUE)
+  
+  # Imputar valores NA con la mediana
+  data[[variable]][is.na(data[[variable]])] <- mediana
+  
+  return(data)
+  
+}
+
+datos <- imputar_mediana(datos, "colesterol")
+datos <- imputar_mediana(datos, "presion_reposo")
+datos <- imputar_mediana(datos, "frec_max")
+datos <- imputar_mediana(datos, "descenso_st")
+
+
+imputar_media <- function(data, variable) {
+  # Calcular la mediana ignorando NA
+  media <- mean(data[[variable]], na.rm = TRUE)
+  
+  # Imputar valores NA con la mediana
+  data[[variable]][is.na(data[[variable]])] <- media
+  
+  return(data)
+  
+}
+
+
+datos <- imputar_media(datos, "edad")
+
+
+```
+::::
+
+
+
+# Análisis bivariante
+
+Llegados a este punto se va a investigar la posible existencia de asociaciones entre la variable `Enfermedad` y el resto de variables.
+
+Para analizar la relación entre dicha variable y las variables categóricas se usará la prueba estadísticas Chi-cuadrado o Fisher para obtener la significancia estadística de las diferencias en caso de que existan. Por otra parte, para las variables numéricas se usará el t-test.
+
+
+
+::: {.callout-note collapse="true" title="Resultado completo de los test Chi-Cuadrado y t-test"}
+```{r}
+
+analisis_con_Enfermedad <- function(dataset) {
+
+    Enfermedad <- dataset$Enfermedad
+  
+  # Excluir variables innecesarias
+  var_names <- names(dataset)
+  fechas <- sapply(dataset, inherits, what = "Date")
+  excluir <- c("Enfermedad", "tipo_dolor_pecho")  # Añadí otras si querés
+  vars_analizar <- setdiff(var_names[!fechas], excluir)
+  
+  for (nombre in vars_analizar) {
+    var <- dataset[[nombre]]
+    cat("\n-------------------------------------------\n")
+    cat("Análisis entre: Enfermedad y", nombre, "\n")
+    cat("-------------------------------------------\n")
+    
+    tipo_var <- if (is.numeric(var)) "numerica" else "categorica"
+    
+    # Enfermedad es CATEGÓRICA
+    if (tipo_var == "categorica") {
+      tabla <- table(Enfermedad, var)
+      print(tabla)
+      
+        cat("Usando test Chi-cuadrado:\n")
+        test <- chisq.test(tabla)
+            print(test)
+    } else if (tipo_var == "numerica") {
+        cat("Usando t-test:\n")
+        test <- t.test(var ~ Enfermedad)
+        print(test)
+      
+    } else {
+      cat("Tipo de análisis no implementado para esta combinación.\n")
+    }
+  }
+}
+
+
+
+
+analisis_con_Enfermedad(datos)
+
+
+
+```
+::::
+
+
+Para el test de Chi-cuadrado es esencial que todas las celdas presenten valores mayores o igual que 5. Si esto no pasa el test no es válido. Esto ocurre en la tabla de frecuencias correspondiente a la variable `tipo_dolor_pecho`. 
+
+Para superar esta limitación, se aplicó el test exacto de Fisher con simulación de Monte Carlo (B = 10,000 repeticiones), ya que el cálculo exacto tradicional no es viable para tablas grandes. La simulación permite obtener un valor p aproximado fiable sin los límites del test exacto clásico.
+
+
+::: {.callout-note collapse="true" title="Resultado del test de fisher con simulate.p.value"}
+```{r}
+
+
+
+# Nombre de la variable a analizar
+nombre <- "tipo_dolor_pecho"
+var <- datos[[nombre]]
+
+cat(
+  "\n-------------------------------------------\n",
+  "Análisis entre: Enfermedad y", nombre, "\n",
+  "-------------------------------------------\n"
+)
+
+# Tabla de contingencia
+tabla <- table(datos$Enfermedad, var)
+print(tabla)
+
+
+  cat("Usando test de Fisher (frecuencias esperadas < 5):\n")
+fisher.test(tabla, simulate.p.value = TRUE, B = 10000)
+
+```
+::::
+
+
+Como conclusión de este análisis, los resultados obtenidos mediante los tests de Fisher, chi-cuadrado y t-test muestran que, en todos los casos, el valor p fue menor de 0.05. Esto permite rechazar la hipótesis nula de independencia, en este caso, que la variable estudiada tiene algún tipo de asocicación con la variable `Enfermedad`.
+
+Por tanto, se puede afirmar que todaslas variables incluidas en el estudio presentan diferencias estadísticamente significativas con respecto a la enfermedad, lo que sugiere que podrían estar asociadas o tener un papel importante en su aparición o evolución. Estos resultados respaldan la necesidad de realizar un análisis más detallado para evaluar su impacto clínico y su posible utilidad en modelos predictivos o en intervenciones específicas.
+
+
+# Estandarización
+
+Como última parte del análisis y procesamiento de las datos se va a realizar la estandarización de los datos. Esto es necesario para los algoritmos de redes neuronales y de máquinas de vectores de soporte. 
+
+El proceso de estandarización consiste en restar la media y dividir entre la desviación estandar de cada variable. De esta manera, se obtiene una nueva variable con media 0 y desviación estandar 1.
+
+Esto se hace para que todas las variables estén en la misma escala, lo cual es importante en muchos modelos predictivos que son sensibles a la magnitud de los datos. La estandarización no cambia la forma de la distribución, pero sí permite comparar y combinar variables de distinta naturaleza de forma más equilibrada.
+
+```{r}
+
+
+datos <- datos %>%
+  mutate(across(where(is.numeric), scale))
+
+datos$Enfermedad <- ifelse(datos$Enfermedad == "Si", 1, 0)
+
+# save(datos, file = "datos_modificados.RData")
+
+load("datos_modificados.RData")
+
+```
+
+# Selección de Variables
+
+## Métodos de filtrado
+
+Los métodos de filtro seleccionan variables importantes antes de entrenar el modelo, basándose en propiedades estadísticas de los datos sin considerar el algoritmo específico. En este caso, usaremos un filtro basado en Información Mutua con la función information.gain de FSelector, que mide la dependencia entre cada variable y el target `Enfermedad` Seleccionaremos las 6 variables más relevantes para usar en todos los modelos.
+
+Esta selección se realiza una sola vez porque es independiente del algoritmo y facilita comparar modelos usando el mismo conjunto de variables, evitando repetir cálculos y simplificando el proceso.
+
+```{r, warning=FALSE, message=FALSE}
+library(FSelector)
+
+library(kableExtra)
+
+select_vars_filter <- function(data, target, k) {
+  scores <- information.gain(as.formula(paste(target, "~ .")), data)
+  top_vars <- rownames(scores)[order(scores$attr_importance, decreasing = TRUE)][1:k]
+  return(top_vars)
+}
+
+mejores_vars <- select_vars_filter(datos, target = "Enfermedad", k = 6)
+
+
+# Mostrar la tabla con kable y fondo azul clarito
+sort(mejores_vars) %>%
+  kable("html", align = "c", col.names = c("Variables seleccionadas")) %>%
+  kable_styling( bootstrap_options = c("striped", "hover")) %>%
+  row_spec(0, background = "#cce5ff", bold = TRUE)  # azul clarito en encabezado
+
+```
+
+## Método Wrapper
+
+Un método de selección de variables tipo wrapper en modelos predictivos es una técnica que evalúa distintos subconjuntos de variables utilizando el rendimiento del modelo como criterio. A diferencia de los métodos filter, que se basan en métricas estadísticas independientes del modelo, los wrapper entrenan y prueban el modelo con cada combinación de variables para encontrar la que ofrece el mejor desempeño. Aunque suelen ser más precisos, son computacionalmente más costosos y pueden sobreajustarse si no se aplican con cuidado.
+
+
+# Doble validación Cruzada
+
+
+Si se entrena un modelo  y se evalua con los mismos datos esto da una evaluación engañosa, pareciendo que el modelo clasifica mucho mejor de lo que lo hace realmente debido a que ya ha visto anteriormente los datos. 
+
+Por otra parte, si dividimos el conjunto de datos para entrenar y evaluar una vez ((80% entrenar, 20% evaluar) se corre el riesgo de depender de la suerte al dividir el conjunto de datos. 
+
+Por estas razones, para evaluar los modelos que se irán construyendo a lo largo del proyecto se va a utilizar la doble validación cruzada.
+
+
+Esta técnica evalua el rendimiento de un modelo dividiendo los datos en varias partes llamadas folds. En cada iteración, el modelo se entrena con algunos folds y se prueba con los restantes. Así se garantiza que cada observación se use tanto para entrenar como para probar, pero nunca al mismo tiempo, lo que permite una evaluación más fiable y reduce el riesgo de sobreajuste.
+
+En la validación cruzada anidada, además de evaluar el modelo, se optimizan sus hiperparámetros en un ciclo interno. Esto asegura que la selección de parámetros no contamine la evaluación final, haciendo que los resultados sean más justos y representativos del desempeño en datos nuevos
+
+
+
+# Algoritmos de aprendizaje
+
+
+A continuación se van a implementar distintos algoritmos de aprendizaje incluyendo varias técnicas para realizar la selección de hiperparámetros y variables. Una vez completadas las evaluaciones de los los modelos estos serán comentados y comparados entre sí para dar con  el mejor.
+
+
+## ANN
+
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+library(nnet)
+library(pROC)
+
+ann_2CV <- function(datos, target, outer, inner, neuronas, penalizaciones, variables, threshold) { 
+  
+  set.seed(123)
+  
+  
+  # Obtenemos las lista de índices
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE, returnTrain = FALSE)
+  
+  # Inicializa el dataframe para guardar las métricas y mejores hiperparámetros por cada fold externo.
+  resultados <- data.frame(
+    Fold = integer(), Accuracy = numeric(), Precision = numeric(),
+    Recall = numeric(), F1 = numeric(), AUC = numeric(),
+    Best_Size = integer(), Best_Decay = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  modelo_formula <- reformulate(variables, target)
+  param_grid <- expand.grid(size = neuronas, decay = penalizaciones)
+  
+  for (i_out in seq_along(outer_folds)) {
+    datos_entrenamiento_out <- datos[-outer_folds[[i_out]], ]
+    datos_prueba_out <- datos[outer_folds[[i_out]], ]
+    
+    
+    # Verificar diversidad de clases antes de continuar con la validación interna
+clases_unicas <- unique(datos_entrenamiento_out[[target]])
+if (length(clases_unicas) <= 1) {
+  mensaje <- paste("Fold externo", i_out, "omitido por falta de diversidad en la variable objetivo")
+  cat(mensaje, "\n")
+  next
+}
+    inner_folds <- createFolds(datos_entrenamiento_out[[target]], k = inner, list = TRUE, returnTrain = FALSE)
+    mejor_auc <- 0
+    opt_neuronas <- NULL
+    opt_penalizacion <- NULL
+    mejor_modelo <- NULL
+    
+    
+        # Búsqueda de hiperparámetros
+    for (parametro in 1:nrow(param_grid)) {
+      aucs_int <- numeric()
+      
+      for (i_int in seq_along(inner_folds)) {
+        datos_entrenamiento_int <- datos_entrenamiento_out[-inner_folds[[i_int]], ]
+        datos_validacion_int <- datos_entrenamiento_out[inner_folds[[i_int]], ]
+        
+        if (length(unique(datos_entrenamiento_int[[target]])) < 2) {
+          next
+        }
+        
+        modelo <- tryCatch({
+          nnet(modelo_formula, data = datos_entrenamiento_int, size = param_grid$size[parametro], decay = param_grid$decay[parametro], linout = FALSE, maxit = 150, trace = FALSE)
+        }, error = function(e) NULL)
+        
+        if (is.null(modelo)) next
+        
+        predicciones <- predict(modelo, datos_validacion_int, type = "raw")
+curva_roc <- tryCatch(pROC::roc(datos_validacion_int[[target]], as.vector(predicciones)), error = function(e) NULL)
+        
+        if (!is.null(curva_roc)) {
+          aucs_int <- c(aucs_int, curva_roc$auc)
+        }
+      }
+      
+      auc_promedio <- mean(aucs_int, na.rm = TRUE)
+      
+      if (auc_promedio > mejor_auc) {
+        mejor_auc <- auc_promedio
+        opt_neuronas <- param_grid$size[parametro]
+        opt_penalizacion <- param_grid$decay[parametro]
+        # Entrenar con todo datos_entrenamiento_out
+        mejor_modelo <- nnet(modelo_formula, data = datos_entrenamiento_out, size = opt_neuronas, decay = opt_penalizacion, linout = FALSE, maxit = 200, trace = FALSE)
+      }
+    }
+    
+    # Predicción y métricas en outer test
+    predicciones <- predict(mejor_modelo, datos_prueba_out, type = "raw")
+    clases_predichas <- ifelse(predicciones > threshold, 1, 0)
+    
+    metricas <- calc_metrics(datos_prueba_out[[target]], clases_predichas)
+auc_out <- tryCatch(pROC::roc(datos_prueba_out[[target]], as.vector(predicciones))$auc, error = function(e) NA)
+    
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = metricas["Accuracy"],
+      Precision = metricas["Precision"],
+      Recall = metricas["Recall"],
+      F1 = metricas["F1.Precision"],
+      AUC = auc_out,
+      Best_Size = opt_neuronas,
+      Best_Decay = opt_penalizacion
+    ))
+  }
+  
+  return(resultados)
+}
+```
+
+
+
+
+```{r, message=FALSE, eval=FALSE}
+resultado_ANN_todasvariables <- ann_2CV(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,
+  inner = 2,
+  neuronas = c(5, 8, 10),
+  penalizaciones = c(0.1, 0.2, 0.3, 0.4),
+  variables = setdiff(names(datos), "Enfermedad"),
+  threshold = 0.4
+)
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultado_ANN_todasvariables, file = "resultado_ANN_todasvariables.rds")
+
+```
+
+```{r}
+
+# Cargar archivo RDS con resultados
+resultado_ANN_todasvariables <- readRDS("resultado_ANN_todasvariables.rds")
+
+
+rownames(resultado_ANN_todasvariables) <- NULL
+
+library(kableExtra)
+
+kable(resultado_ANN_todasvariables, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con todas las variables") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#ffe6f0") %>%  # Encabezado rosita claro
+  column_spec(1:ncol(resultado_ANN_todasvariables), background = "#fff0f5")  # Celdas rositas muy claras
+
+```
+
+
+### Filtrado
+
+```{r, message=FALSE, warning=FALSE, eval=FALSE}
+resultado_ANN_filtrado <- ann_2CV(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,
+  inner = 2,
+  neuronas = c(5, 8, 10),
+  penalizaciones = c(0.1, 0.2, 0.3, 0.4),
+  variables = mejores_vars,
+  threshold = 0.4
+)
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultado_ANN_filtrado, file = "resultado_ANN_filtrado.rds")
+
+```
+
+```{r}
+
+# Cargar archivo RDS con resultados
+resultado_ANN_filtrado <- readRDS("resultado_ANN_filtrado.rds")
+
+library(kableExtra)
+rownames(resultado_ANN_filtrado) <- NULL
+
+kable(resultado_ANN_filtrado, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con las variables filtradas") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#ffe6f0") %>%  # Encabezado rosita claro
+  column_spec(1:ncol(resultado_ANN_filtrado), background = "#fff0f5")  # Celdas rositas muy claras
+
+```
+
+
+### Wrapper: forward selection
+
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(nnet)
+library(pROC)
+
+
+wrapper_2CV <- function(datos, target, outer, inner, 
+                        neuronas, penalizaciones,
+                        threshold) {
+  
+  set.seed(123)
+  
+  # Generamos los folds externos: se usarán para evaluación final
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE, returnTrain = FALSE)
+  
+  # Data frame donde almacenaremos resultados finales de cada fold externo
+  resultados <- data.frame(
+    Fold = integer(),
+    Accuracy = numeric(),
+    Precision = numeric(),
+    Recall = numeric(),
+    F1 = numeric(),
+    AUC = numeric(),
+    Variables_Seleccionadas = character(),
+    Best_Size = integer(),
+    Best_Decay = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Grid de hiperparámetros para tuning
+  param_grid <- expand.grid(size = neuronas, decay = penalizaciones)
+  
+  # Bucle sobre cada fold externo
+  for (i_out in seq_along(outer_folds)) {
+
+    # Dividimos datos: entrenamiento y prueba externos
+    datos_train_out <- datos[-outer_folds[[i_out]], ]
+    datos_test_out <- datos[outer_folds[[i_out]], ]
+    
+    # Variables candidatas iniciales (sin incluir la variable objetivo)
+    variables_candidatas <- setdiff(names(datos), target)
+    variables_seleccionadas <- c()  # Empezamos sin variables seleccionadas
+    mejora <- TRUE                  # Control para continuar selección
+    mejor_auc_global <- 0           # Mejor AUC encontrado en inner CV hasta ahora
+    opt_size_global <- NA           # Mejor número de neuronas
+    opt_decay_global <- NA          # Mejor penalización
+    
+    # Loop del wrapper forward: agregamos variables mientras mejoremos AUC
+    while (mejora && length(variables_candidatas) > 0) {
+      auc_mejor_var <- 0
+      mejor_variable <- NULL
+      mejor_size <- NA
+      mejor_decay <- NA
+      
+      # Probamos agregar cada variable candidata al conjunto seleccionado actual
+      for (var_cand in variables_candidatas) {
+        vars_actuales <- c(variables_seleccionadas, var_cand)
+        # Creamos la fórmula para nnet (ejemplo: target ~ var1 + var2 + ...)
+        formula_actual <- reformulate(vars_actuales, target)
+        
+        # Inner folds: validación interna para tuning y evaluación
+        inner_folds <- createFolds(datos_train_out[[target]], k = inner, list = TRUE, returnTrain = FALSE)
+        
+        aucs_param <- numeric(nrow(param_grid))  # Almacenará AUC para cada combinación de hiperparámetros
+        
+        # Recorremos grid de hiperparámetros para este conjunto de variables
+        for (p in 1:nrow(param_grid)) {
+          aucs_inner <- c()  # Almacenará AUC de cada fold interno
+          
+          # Loop sobre folds internos
+          for (i_int in seq_along(inner_folds)) {
+            train_int <- datos_train_out[-inner_folds[[i_int]], ]
+            val_int <- datos_train_out[inner_folds[[i_int]], ]
+            
+            # Validar que haya al menos 2 clases en training interno para evitar error
+            if(length(unique(train_int[[target]])) < 2) next
+            
+            # Entrenamos el modelo con la fórmula y parámetros actuales
+            mod <- tryCatch({
+              nnet(formula_actual, data=train_int, 
+                   size=param_grid$size[p], decay=param_grid$decay[p], 
+                   linout=FALSE, maxit=150, trace=FALSE)
+            }, error=function(e) NULL)
+            
+            if(is.null(mod)) next
+            
+            # Predecimos probabilidades en el fold de validación interna
+            preds <- predict(mod, val_int, type="raw")
+            # Calculamos curva ROC para obtener AUC
+            roc_obj <- tryCatch(pROC::roc(val_int[[target]], as.vector(preds)), error=function(e) NULL)
+            
+            if(!is.null(roc_obj)) {
+              aucs_inner <- c(aucs_inner, roc_obj$auc)
+            }
+          }
+          # AUC promedio para este combo hiperparámetros + variables
+          aucs_param[p] <- mean(aucs_inner, na.rm=TRUE)
+        }
+        
+        # Si no obtuvimos AUC para esta variable, pasamos a siguiente
+        if(all(is.na(aucs_param))) next
+        
+        # Seleccionamos mejor AUC y sus hiperparámetros asociados
+        max_auc_var <- max(aucs_param, na.rm=TRUE)
+        idx_best <- which.max(aucs_param)
+        
+        # Guardamos la variable si mejora el mejor AUC global hasta ahora
+        if(max_auc_var > auc_mejor_var) {
+          auc_mejor_var <- max_auc_var
+          mejor_variable <- var_cand
+          mejor_size <- param_grid$size[idx_best]
+          mejor_decay <- param_grid$decay[idx_best]
+        }
+      }
+      
+      # Si la mejor variable mejora AUC global, la agregamos a seleccionadas
+      if(!is.null(mejor_variable) && auc_mejor_var > mejor_auc_global) {
+        variables_seleccionadas <- c(variables_seleccionadas, mejor_variable)
+        variables_candidatas <- setdiff(variables_candidatas, mejor_variable)  # Quitamos variable seleccionada
+        mejor_auc_global <- auc_mejor_var
+        opt_size_global <- mejor_size
+        opt_decay_global <- mejor_decay
+        
+        # cat("  Agregada variable:", mejor_variable, "con AUC interno:", round(mejor_auc_global,4), "\n")
+      } else {
+        # Si no hubo mejora, terminamos el wrapper para este fold externo
+        mejora <- FALSE
+      }
+    }
+    
+    # Si no se seleccionaron variables, no entrenamos el modelo
+    if(length(variables_seleccionadas) == 0) {
+      cat("No se seleccionaron variables en fold", i_out, "\n")
+      next
+    }
+    
+    # Entrenamos el modelo final con variables e hiperparámetros óptimos en todo entrenamiento externo
+    formula_final <- reformulate(variables_seleccionadas, target)
+    
+    modelo_final <- nnet(formula_final, data=datos_train_out,
+                        size=opt_size_global, decay=opt_decay_global,
+                        linout=FALSE, maxit=200, trace=FALSE)
+    
+    # Predicciones en fold externo de prueba
+    preds_final <- predict(modelo_final, datos_test_out, type="raw")
+    clases_pred <- ifelse(preds_final > threshold, 1, 0)
+    
+    # Calculamos métricas finales en fold externo
+    met <- calc_metrics(datos_test_out[[target]], clases_pred)
+    auc_final <- tryCatch(pROC::roc(datos_test_out[[target]], as.vector(preds_final))$auc, error=function(e) NA)
+    
+    # Guardamos resultados de este fold
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = met["Accuracy"],
+      Precision = met["Precision"],
+      Recall = met["Recall"],
+      F1 = met["F1.Precision"],
+      AUC = auc_final,
+      Variables_Seleccionadas = paste(variables_seleccionadas, collapse=","),
+      Best_Size = opt_size_global,
+      Best_Decay = opt_decay_global,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  return(resultados)
+}
+
+
+```
+
+
+```{r, message=FALSE,  eval=FALSE}
+
+resultado_ANN_wrapper <- wrapper_2CV(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,               
+  inner = 2,
+  neuronas = c(5, 8,10),
+  penalizaciones = c(0.1, 0.2, 0.3),
+  threshold = 0.4
+)
+
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultado_ANN_wrapper, file = "resultado_ANN_wrapper.rds")
+
+```
+
+```{r}
+
+# Cargar archivo RDS con resultados
+resultado_ANN_wrapper <- readRDS("resultado_ANN_wrapper.rds")
+
+rownames(resultado_ANN_wrapper) <- NULL
+
+kable(resultado_ANN_wrapper, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo tras aplicar wrapper") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#ffe6f0") %>%  # Encabezado rosita claro
+  column_spec(1:ncol(resultado_ANN_wrapper), background = "#fff0f5")  # Celdas rositas muy claras
+
+```
+
+
+## SVM
+
+
+
+```{r, message=FALSE, warning=FALSE}
+svm_2CV <- function(datos, target, outer = 5, inner = 2,
+                    costs, gammas, kernels = c("radial", "linear"),
+                    variables, threshold = 0.5) {
+
+  library(caret)
+  library(e1071)
+  library(pROC)
+
+  set.seed(123)
+
+  datos[[target]] <- as.factor(datos[[target]])  # Asegura que target sea factor
+
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE, returnTrain = FALSE)
+
+  resultados <- data.frame(
+    Fold = integer(), Accuracy = numeric(), Precision = numeric(),
+    Recall = numeric(), F1 = numeric(), AUC = numeric(),
+    Best_Cost = numeric(), Best_Gamma = numeric(),
+    Best_Kernel = character(),
+    stringsAsFactors = FALSE
+  )
+
+  modelo_formula <- reformulate(variables, target)
+
+  param_grid <- expand.grid(
+    kernel = kernels,
+    cost = costs,
+    gamma = gammas,
+    stringsAsFactors = FALSE
+  )
+
+  for (i_out in seq_along(outer_folds)) {
+    datos_entrenamiento_out <- datos[-outer_folds[[i_out]], ]
+    datos_prueba_out <- datos[outer_folds[[i_out]], ]
+
+    clases_unicas <- unique(datos_entrenamiento_out[[target]])
+    if (length(clases_unicas) <= 1) {
+      cat("Fold externo", i_out, "omitido por falta de diversidad en la variable objetivo\n")
+      next
+    }
+
+    inner_folds <- createFolds(datos_entrenamiento_out[[target]], k = inner, list = TRUE, returnTrain = FALSE)
+
+    mejor_auc <- 0
+    mejor_modelo <- NULL
+    opt_cost <- NA
+    opt_gamma <- NA
+    opt_kernel <- NA
+
+    for (parametro in 1:nrow(param_grid)) {
+      kernel_sel <- param_grid$kernel[parametro]
+      cost_sel <- param_grid$cost[parametro]
+      gamma_sel <- param_grid$gamma[parametro]
+
+      aucs_int <- numeric()
+
+      for (i_int in seq_along(inner_folds)) {
+        datos_entrenamiento_int <- datos_entrenamiento_out[-inner_folds[[i_int]], ]
+        datos_validacion_int <- datos_entrenamiento_out[inner_folds[[i_int]], ]
+
+        if (length(unique(datos_entrenamiento_int[[target]])) < 2) next
+
+        modelo <- tryCatch({
+          if (kernel_sel == "linear") {
+            svm(modelo_formula,
+                data = datos_entrenamiento_int,
+                kernel = kernel_sel,
+                cost = cost_sel,
+                probability = TRUE)
+          } else {
+            svm(modelo_formula,
+                data = datos_entrenamiento_int,
+                kernel = kernel_sel,
+                cost = cost_sel,
+                gamma = gamma_sel,
+                probability = TRUE)
+          }
+        }, error = function(e) NULL)
+
+        if (is.null(modelo)) next
+         
+
+        pred <- tryCatch(predict(modelo, datos_validacion_int, probability = TRUE), error = function(e) NULL)
+        if (is.null(pred)) next
+
+        prob_mat <- attr(pred, "probabilities")
+        if (is.null(prob_mat)) next
+
+        clase_positiva <- colnames(prob_mat)[2]  # Segunda clase como positiva
+        predicciones_prob <- prob_mat[, clase_positiva]
+
+        curva_roc <- tryCatch(pROC::roc(datos_validacion_int[[target]], predicciones_prob), error = function(e) NULL)
+        if (!is.null(curva_roc)) {
+          aucs_int <- c(aucs_int, curva_roc$auc)
+        }
+      }
+
+      auc_promedio <- mean(aucs_int, na.rm = TRUE)
+      if (auc_promedio > mejor_auc) {
+        mejor_auc <- auc_promedio
+        opt_cost <- cost_sel
+        opt_gamma <- ifelse(kernel_sel == "linear", NA, gamma_sel)
+        opt_kernel <- kernel_sel
+
+        mejor_modelo <- tryCatch({
+          if (opt_kernel == "linear") {
+            svm(modelo_formula,
+                data = datos_entrenamiento_out,
+                kernel = opt_kernel,
+                cost = opt_cost,
+                probability = TRUE)
+          } else {
+            svm(modelo_formula,
+                data = datos_entrenamiento_out,
+                kernel = opt_kernel,
+                cost = opt_cost,
+                gamma = opt_gamma,
+                probability = TRUE)
+          }
+        }, error = function(e) NULL)
+      }
+    }
+
+    if (is.null(mejor_modelo)) {
+      cat("No se pudo entrenar un modelo en el fold externo", i_out, "\n")
+      next
+    }
+
+    pred_out <- tryCatch(predict(mejor_modelo, datos_prueba_out, probability = TRUE), error = function(e) NULL)
+    if (is.null(pred_out)){
+      print("error")
+      next
+    } 
+
+    prob_mat_out <- attr(pred_out, "probabilities")
+    if (is.null(prob_mat_out)) next
+
+    clase_positiva <- colnames(prob_mat_out)[2]
+    predicciones_prob_out <- prob_mat_out[, clase_positiva]
+
+    clases_predichas <- factor(ifelse(predicciones_prob_out > threshold, 1, 0), levels = c(0, 1))
+
+    metricas <- calc_metrics(datos_prueba_out[[target]], clases_predichas)
+    auc_out <- tryCatch(roc(datos_prueba_out[[target]], predicciones_prob_out)$auc, error = function(e) NA)
+
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = metricas["Accuracy"],
+      Precision = metricas["Precision"],
+      Recall = metricas["Recall"],
+      F1 = metricas["F1.Precision"],
+      AUC = auc_out,
+      Best_Cost = opt_cost,
+      Best_Gamma = opt_gamma,
+      Best_Kernel = opt_kernel,
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  return(resultados)
+}
+
+
+```
+
+```{r, message=FALSE, warning=FALSE,  eval=FALSE}
+
+todas_variables <- setdiff(names(datos), "Enfermedad")
+
+costs <- c(0.1, 1, 10)
+gammas <- c(0.01, 0.1, 1)
+kernels <- c("radial", "linear")
+
+resultados_svm <- svm_2CV(datos, target = "Enfermedad", outer = 5, inner = 2,
+                      costs = costs, gammas = gammas, kernels = kernels,
+                      variables = todas_variables, threshold = 0.5)
+
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultados_svm, file = "resultados_svm.rds")
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+# Cargar archivo RDS con resultados
+resultados_svm <- readRDS("resultados_svm.rds")
+
+rownames(resultados_svm) <- NULL
+
+
+kable(resultados_svm, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con todas las variables") %>%
+  kable_styling(position = "center") %>%
+  row_spec(0, background = "#e6f0ff") %>%  # Encabezado azul claro
+  column_spec(1:ncol(resultados_svm), background = "#f0f8ff")  # Celdas azul muy claro
+
+
+
+```
+
+
+### Filtrado
+```{r,  message=FALSE, warning=FALSE, eval=FALSE}
+
+costs <- c(0.1, 1, 10)
+gammas <- c(0.01, 0.1, 1)
+kernels <- c("radial", "linear")
+
+
+resultados_svm_filtrado <- suppressMessages(
+  suppressWarnings(
+    svm_2CV(datos, target = "Enfermedad", outer = 5, inner = 2,
+            costs = costs, gammas = gammas, kernels = kernels,
+            variables = mejores_vars, threshold = 0.5)
+  )
+)
+
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultados_svm_filtrado, file = "resultados_svm_filtrado.rds")
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+# Cargar archivo RDS con resultados
+resultados_svm_filtrado <- readRDS("resultados_svm_filtrado.rds")
+
+
+
+rownames(resultados_svm_filtrado) <- NULL
+
+
+kable(resultados_svm_filtrado, format = "html", align = "c", caption = "Resumen de los folds con las variables filtradas") %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  row_spec(0, background = "#e6f0ff") %>%  # Encabezado azul claro
+  column_spec(1:ncol(resultados_svm_filtrado), background = "#f0f8ff")  # Celdas azul muy claro
+
+```
+
+
+
+### Wrapper: forward selection
+
+
+```{r, message=FALSE, warning=FALSE}
+svm_2CV_wrapper <- function(datos, target, outer = 5, inner = 2,
+                            costs, gammas, kernels = c("radial", "linear"),
+                            todas_las_variables, threshold = 0.5) {
+
+  library(caret)
+  library(e1071)
+  library(pROC)
+
+  # datos$Enfermedad <-factor(datos$Enfermedad)
+  set.seed(123)
+
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE)
+
+  resultados <- data.frame(
+    Fold = integer(), Accuracy = numeric(), Precision = numeric(),
+    Recall = numeric(), F1 = numeric(), AUC = numeric(),
+    Best_Cost = numeric(), Best_Gamma = numeric(),
+    Best_Kernel = character(), Variables = character(),
+    stringsAsFactors = FALSE
+  )
+
+  # Crear grid de parámetros
+  param_grid <- do.call(rbind, lapply(kernels, function(k) {
+    if (k == "linear") {
+      expand.grid(kernel = k, cost = costs, gamma = NA, stringsAsFactors = FALSE)
+    } else {
+      expand.grid(kernel = k, cost = costs, gamma = gammas, stringsAsFactors = FALSE)
+    }
+  }))
+
+  for (i_out in seq_along(outer_folds)) {
+    datos_prueba_out <- datos[outer_folds[[i_out]], ]
+    datos_entrenamiento_out <- datos[-outer_folds[[i_out]], ]
+
+    if (length(unique(datos_entrenamiento_out[[target]])) <= 1) {
+      cat("Fold externo", i_out, "omitido por falta de clases\n")
+      next
+    }
+
+    inner_folds <- createFolds(datos_entrenamiento_out[[target]], k = inner, list = TRUE)
+
+    variables_disponibles <- todas_las_variables
+    variables_seleccionadas <- c()
+    mejor_auc_global <- 0
+    mejor_combinacion <- list()
+
+    repeat {
+      mejora <- FALSE
+      mejor_auc_local <- 0
+      mejor_variable <- NULL
+      mejor_params <- list()
+
+      for (var in setdiff(variables_disponibles, variables_seleccionadas)) {
+        vars_prueba <- c(variables_seleccionadas, var)
+        modelo_formula <- reformulate(vars_prueba, target)
+
+        for (p in 1:nrow(param_grid)) {
+          kernel_sel <- param_grid$kernel[p]
+          cost_sel <- param_grid$cost[p]
+          gamma_sel <- param_grid$gamma[p]
+
+          aucs_inner <- c()
+
+          for (i_int in seq_along(inner_folds)) {
+            datos_entrenamiento_int <- datos_entrenamiento_out[-inner_folds[[i_int]], ]
+            datos_validacion_int <- datos_entrenamiento_out[inner_folds[[i_int]], ]
+
+            if (length(unique(datos_entrenamiento_int[[target]])) < 2) next
+
+            modelo <- tryCatch({
+              if (kernel_sel == "linear") {
+                svm(modelo_formula, data = datos_entrenamiento_int,
+                    kernel = kernel_sel, cost = cost_sel,
+                    probability = TRUE)
+              } else {
+                svm(modelo_formula, data = datos_entrenamiento_int,
+                    kernel = kernel_sel, cost = cost_sel, gamma = gamma_sel,
+                    probability = TRUE)
+              }
+            }, error = function(e) NULL)
+
+            if (is.null(modelo)) next
+
+            pred_probs <- tryCatch({
+              probs <- attr(predict(modelo, datos_validacion_int, probability = TRUE), "probabilities")
+              probs[, 2]
+            }, error = function(e) NULL)
+
+            if (is.null(pred_probs)) next
+
+            auc <- tryCatch(pROC::roc(datos_validacion_int[[target]], pred_probs)$auc, error = function(e) NA)
+            if (!is.na(auc)) aucs_inner <- c(aucs_inner, auc)
+          }
+
+          auc_prom <- mean(aucs_inner, na.rm = TRUE)
+
+          if (!is.na(auc_prom) && auc_prom > mejor_auc_local) {
+            mejor_auc_local <- auc_prom
+            mejor_variable <- var
+            mejor_params <- list(cost = cost_sel, gamma = gamma_sel, kernel = kernel_sel)
+          }
+        }
+      }
+
+      if (!is.null(mejor_variable) && mejor_auc_local > mejor_auc_global) {
+        variables_seleccionadas <- c(variables_seleccionadas, mejor_variable)
+        mejor_auc_global <- mejor_auc_local
+        mejor_combinacion <- mejor_params
+        mejora <- TRUE
+      }
+
+      if (!mejora) break
+    }
+
+    modelo_formula_final <- reformulate(variables_seleccionadas, target)
+
+    mejor_modelo <- tryCatch({
+      if (mejor_combinacion$kernel == "linear") {
+        svm(modelo_formula_final, data = datos_entrenamiento_out,
+            kernel = mejor_combinacion$kernel, cost = mejor_combinacion$cost,
+            probability = TRUE)
+      } else {
+        svm(modelo_formula_final, data = datos_entrenamiento_out,
+            kernel = mejor_combinacion$kernel, cost = mejor_combinacion$cost,
+            gamma = mejor_combinacion$gamma, probability = TRUE)
+      }
+    }, error = function(e) NULL)
+
+    if (is.null(mejor_modelo)) {
+      cat("No se pudo entrenar modelo final en el fold externo", i_out, "\n")
+      next
+    }
+
+    pred_probs_out <- tryCatch({
+      probs <- attr(predict(mejor_modelo, datos_prueba_out, probability = TRUE), "probabilities")
+      probs[, 2]
+    }, error = function(e) rep(NA, nrow(datos_prueba_out)))
+
+    clases_predichas <- factor(ifelse(pred_probs_out > threshold, 1, 0), levels = c(0, 1))
+
+    metricas <- calc_metrics(datos_prueba_out[[target]], clases_predichas)
+    auc_out <- tryCatch(pROC::roc(datos_prueba_out[[target]], pred_probs_out)$auc, error = function(e) NA)
+
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = metricas["Accuracy"],
+      Precision = metricas["Precision"],
+      Recall = metricas["Recall"],
+      F1 = metricas["F1.Precision"],
+      AUC = auc_out,
+      Best_Cost = mejor_combinacion$cost,
+      Best_Gamma = mejor_combinacion$gamma,
+      Best_Kernel = mejor_combinacion$kernel,
+      Variables = paste(variables_seleccionadas, collapse = ", "),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  return(resultados)
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE,  eval=FALSE}
+costos <- c(0.1, 1, 10)
+gammas <- c(0.01, 0.1, 1)
+kernels <- c("radial", "linear")
+
+
+resultados_svm_wrapper <- svm_2CV_wrapper(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,       # folds externos para CV anidada
+  inner = 2,       # folds internos para selección/hyperparam tuning
+  costs = costos,
+  gammas = gammas,
+  kernels = kernels,
+  todas_las_variables = todas_variables,
+  threshold = 0.5  # umbral para convertir probabilidad a clase
+)
+
+
+# Guardar en formato RDS (guarda el objeto con toda su estructura)
+saveRDS(resultados_svm_wrapper, file = "resultados_svm_2CV_wrapper.rds")
+
+
+```
+
+```{r}
+
+# Cargar archivo RDS con resultados
+resultados_svm_2CV_wrapper <- readRDS("resultados_svm_2CV_wrapper.rds")
+
+
+rownames(resultados_svm_2CV_wrapper) <- NULL
+
+
+
+kable(resultados_svm_2CV_wrapper, format = "html", align = "c",
+      caption = "Resumen de los folds tras filtrar con wrapper") %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  row_spec(0, background = "#e6f0ff") %>%  # Encabezado azul claro
+  column_spec(1:ncol(resultados_svm_2CV_wrapper), background = "#f0f8ff")  # Celdas azul muy claro
+
+```
+
+
+## Árboles de decisión
+
+```{r, warning=FALSE, message=FALSE}
+decision_tree_2CV <- function(datos, target, outer, inner, cp_values, minsplit_values, minbucket_values, variables) { 
+  
+  set.seed(123)
+  library(rpart)
+  library(pROC)
+  library(caret)
+
+
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE, returnTrain = FALSE)
+  
+  resultados <- data.frame(
+    Fold = integer(), Accuracy = numeric(), Precision = numeric(),
+    Recall = numeric(), F1 = numeric(), AUC = numeric(),
+    Best_cp = numeric(), Best_minsplit = integer(), Best_minbucket = integer(),
+    stringsAsFactors = FALSE
+  )
+  
+  modelo_formula <- reformulate(variables, target)
+  
+  # Grid de combinaciones de hiperparámetros
+  param_grid <- expand.grid(cp = cp_values, minsplit = minsplit_values, minbucket = minbucket_values)
+  
+  for (i_out in seq_along(outer_folds)) {
+    
+    datos_entrenamiento_out <- datos[-outer_folds[[i_out]], ]
+    datos_prueba_out <- datos[outer_folds[[i_out]], ]
+    
+    clases_unicas <- unique(datos_entrenamiento_out[[target]])
+    if (length(clases_unicas) <= 1) {
+      cat("  Fold omitido por falta de clases en entrenamiento.\n")
+      next
+    }
+    
+    inner_folds <- createFolds(datos_entrenamiento_out[[target]], k = inner, list = TRUE, returnTrain = FALSE)
+    
+    mejor_auc <- 0
+    opt_cp <- NA
+    opt_minsplit <- NA
+    opt_minbucket <- NA
+    mejor_modelo <- NULL
+    
+    for (p in 1:nrow(param_grid)) {
+      aucs_int <- numeric()
+      
+      for (i_int in seq_along(inner_folds)) {
+        datos_entrenamiento_int <- datos_entrenamiento_out[-inner_folds[[i_int]], ]
+        datos_validacion_int <- datos_entrenamiento_out[inner_folds[[i_int]], ]
+        
+        if (length(unique(datos_entrenamiento_int[[target]])) < 2) next
+        
+        modelo <- tryCatch({
+          rpart(
+            modelo_formula,
+            data = datos_entrenamiento_int,
+            method = "class",
+            control = rpart.control(
+              cp = param_grid$cp[p],
+              minsplit = param_grid$minsplit[p],
+              minbucket = param_grid$minbucket[p]
+            )
+          )
+        }, error = function(e) NULL)
+        
+        if (is.null(modelo)) next
+        
+        pred_prob <- predict(modelo, datos_validacion_int, type = "prob")[, "1"]
+        curva_roc <- tryCatch(pROC::roc(datos_validacion_int[[target]], pred_prob), error = function(e) NULL)
+        
+        if (!is.null(curva_roc)) {
+          aucs_int <- c(aucs_int, curva_roc$auc)
+        }
+      }
+      
+      auc_promedio <- mean(aucs_int, na.rm = TRUE)
+      
+      if (!is.na(auc_promedio) && auc_promedio > mejor_auc) {
+        mejor_auc <- auc_promedio
+        opt_cp <- param_grid$cp[p]
+        opt_minsplit <- param_grid$minsplit[p]
+        opt_minbucket <- param_grid$minbucket[p]
+        mejor_modelo <- rpart(
+          modelo_formula,
+          data = datos_entrenamiento_out,
+          method = "class",
+          control = rpart.control(
+            cp = opt_cp,
+            minsplit = opt_minsplit,
+            minbucket = opt_minbucket
+          )
+        )
+      }
+    }
+    
+    if (is.null(mejor_modelo)) {
+      cat("  No se pudo entrenar modelo válido en este fold.\n")
+      next
+    }
+    
+    pred_prob_out <- predict(mejor_modelo, datos_prueba_out, type = "prob")[, "1"]
+    clases_predichas <- ifelse(pred_prob_out > 0.5, 1, 0)
+    
+    metricas <- calc_metrics(datos_prueba_out[[target]], clases_predichas)
+    auc_out <- tryCatch(pROC::roc(datos_prueba_out[[target]], pred_prob_out)$auc, error = function(e) NA)
+    
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = metricas["Accuracy"],
+      Precision = metricas["Precision"],
+      Recall = metricas["Recall"],
+      F1 = metricas["F1.Precision"],
+      AUC = auc_out,
+      Best_cp = opt_cp,
+      Best_minsplit = opt_minsplit,
+      Best_minbucket = opt_minbucket
+    ))
+  }
+  
+  return(resultados)
+}
+
+
+```
+
+
+```{r, message=FALSE, eval=FALSE}
+
+resultado_DT_completo <- decision_tree_2CV(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,
+  inner = 2,
+  cp_values = seq(0.0001, 0.02, by = 0.001),
+minsplit = c(5, 10, 15, 20, 30, 50),
+minbucket = c(2, 5, 10, 15),
+  variables = setdiff(names(datos), "Enfermedad")
+)
+
+
+ # CP -> Parámetro de Complejidad,  umbral mínimo de mejora en la calidad del model
+
+#minsplit -> número mínimo de observaciones que debe tener un nodo para considerar dividirlo.
+
+# minbucket -> El número mínimo de observaciones permitidas en cada hoja del árbol (nodo terminal).
+
+# Guardar los resultados
+saveRDS(resultado_DT_completo, file = "resultado_DT_completo.rds")
+
+```
+
+
+```{r}
+
+library(kableExtra)
+
+resultado_DT_completo <- readRDS("resultado_DT_completo.rds")
+
+rownames(resultado_DT_completo) <- NULL
+
+kable(resultado_DT_completo, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con todas las variables") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#e6ffe6") %>%  # Encabezado en verde claro
+  kableExtra::column_spec(1:ncol(resultado_DT_completo), background = "#f0fff0")  # Celdas verdes muy claras
+
+
+```
+
+### Filtrado
+
+Ahora usamos las mejores variables seleccionadas con el filtrado.
+
+```{r, message=FALSE, eval=FALSE}
+
+resultado_DT_filtrado <- decision_tree_2CV(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,
+  inner = 2,
+  cp_values = seq(0.0001, 0.02, by = 0.001),
+minsplit = c(5, 10, 15, 20, 30, 50),
+minbucket = c(2, 5, 10, 15),
+  variables = mejores_vars
+)
+
+
+saveRDS(resultado_DT_filtrado, file = "resultado_DT_filtrado.rds")
+
+
+```
+
+
+```{r}
+
+
+resultado_DT_filtrado <- readRDS("resultado_DT_filtrado.rds")
+
+rownames(resultado_DT_filtrado) <- NULL
+
+kable(resultado_DT_filtrado, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con las variables filtradas") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#e6ffe6") %>%  # Encabezado en verde claro
+  kableExtra::column_spec(1:ncol(resultado_DT_filtrado), background = "#f0fff0")  # Celdas verdes muy claras
+
+
+```
+
+### Wrapper: forward selection
+
+```{r, message=FALSE, warning=FALSE}
+decision_tree_2CV_wrapper <- function(datos, target, outer, inner, cp_values, minsplit_values, minbucket_values, variables) { 
+  set.seed(123)
+  library(rpart)
+  library(pROC)
+  library(caret)
+
+  datos[[target]] <- factor(datos[[target]], levels = c(0, 1))
+
+  outer_folds <- createFolds(datos[[target]], k = outer, list = TRUE, returnTrain = FALSE)
+
+  resultados <- data.frame(
+    Fold = integer(), Accuracy = numeric(), Precision = numeric(),
+    Recall = numeric(), F1 = numeric(), AUC = numeric(),
+    Best_cp = numeric(), Best_minsplit = integer(), Best_minbucket = integer(),
+    Variables = character(),
+    stringsAsFactors = FALSE
+  )
+
+  param_grid <- expand.grid(cp = cp_values, minsplit = minsplit_values, minbucket = minbucket_values)
+
+  for (i_out in seq_along(outer_folds)) {
+    cat("\n>>> Fold externo", i_out, "\n")
+    
+    datos_entrenamiento_out <- datos[-outer_folds[[i_out]], ]
+    datos_prueba_out <- datos[outer_folds[[i_out]], ]
+    
+    if (length(unique(datos_entrenamiento_out[[target]])) < 2) {
+      cat("  Fold omitido por falta de clases.\n")
+      next
+    }
+
+    inner_folds <- createFolds(datos_entrenamiento_out[[target]], k = inner, list = TRUE, returnTrain = FALSE)
+
+    mejor_auc_global <- 0
+    opt_cp <- NA
+    opt_minsplit <- NA
+    opt_minbucket <- NA
+    variables_optimas <- NULL
+
+    # Forward selection
+    variables_disponibles <- variables
+    variables_seleccionadas <- character()
+    continuar <- TRUE
+
+    while (continuar && length(setdiff(variables_disponibles, variables_seleccionadas)) > 0) {
+      mejoras <- list()
+
+      for (v in setdiff(variables_disponibles, variables_seleccionadas)) {
+        cand_vars <- c(variables_seleccionadas, v)
+        formula_cand <- reformulate(cand_vars, target)
+
+        for (p in 1:nrow(param_grid)) {
+          aucs_int <- numeric()
+
+          for (i_int in seq_along(inner_folds)) {
+            datos_entrenamiento_int <- datos_entrenamiento_out[-inner_folds[[i_int]], ]
+            datos_validacion_int <- datos_entrenamiento_out[inner_folds[[i_int]], ]
+
+            if (length(unique(datos_entrenamiento_int[[target]])) < 2) next
+
+            modelo <- tryCatch({
+              rpart(
+                formula_cand,
+                data = datos_entrenamiento_int,
+                method = "class",
+                control = rpart.control(
+                  cp = param_grid$cp[p],
+                  minsplit = param_grid$minsplit[p],
+                  minbucket = param_grid$minbucket[p]
+                )
+              )
+            }, error = function(e) NULL)
+
+            if (is.null(modelo)) next
+
+            pred_prob <- tryCatch(predict(modelo, datos_validacion_int, type = "prob")[, "1"], error = function(e) NULL)
+            if (is.null(pred_prob)) next
+
+            curva_roc <- tryCatch(pROC::roc(datos_validacion_int[[target]], pred_prob), error = function(e) NULL)
+            if (!is.null(curva_roc)) aucs_int <- c(aucs_int, curva_roc$auc)
+          }
+
+          auc_promedio <- mean(aucs_int, na.rm = TRUE)
+          if (!is.na(auc_promedio)) {
+            mejoras[[length(mejoras) + 1]] <- list(
+              auc = auc_promedio,
+              vars = cand_vars,
+              cp = param_grid$cp[p],
+              minsplit = param_grid$minsplit[p],
+              minbucket = param_grid$minbucket[p]
+            )
+          }
+        }
+      }
+
+      if (length(mejoras) == 0) break
+
+      mejora_actual <- mejoras[[which.max(sapply(mejoras, function(m) m$auc))]]
+      
+      if (mejora_actual$auc > mejor_auc_global + 0.001) {  # Umbral mínimo de mejora
+        mejor_auc_global <- mejora_actual$auc
+        variables_seleccionadas <- mejora_actual$vars
+        opt_cp <- mejora_actual$cp
+        opt_minsplit <- mejora_actual$minsplit
+        opt_minbucket <- mejora_actual$minbucket
+      } else {
+        continuar <- FALSE
+      }
+    }
+
+    if (length(variables_seleccionadas) == 0) {
+      cat("  No se seleccionaron variables.\n")
+      next
+    }
+
+    # Modelo final con mejores variables e hiperparámetros
+    modelo_formula_final <- reformulate(variables_seleccionadas, target)
+    modelo_final <- tryCatch({
+      rpart(
+        modelo_formula_final,
+        data = datos_entrenamiento_out,
+        method = "class",
+        control = rpart.control(
+          cp = opt_cp,
+          minsplit = opt_minsplit,
+          minbucket = opt_minbucket
+        )
+      )
+    }, error = function(e) NULL)
+
+    if (is.null(modelo_final)) {
+      cat("  No se pudo entrenar el modelo final.\n")
+      next
+    }
+
+    pred_prob_out <- predict(modelo_final, datos_prueba_out, type = "prob")[, "1"]
+    clases_predichas <- ifelse(pred_prob_out > 0.5, 1, 0)
+
+    metricas <- calc_metrics(datos_prueba_out[[target]], clases_predichas)
+    auc_out <- tryCatch(pROC::roc(datos_prueba_out[[target]], pred_prob_out)$auc, error = function(e) NA)
+
+    resultados <- rbind(resultados, data.frame(
+      Fold = i_out,
+      Accuracy = metricas["Accuracy"],
+      Precision = metricas["Precision"],
+      Recall = metricas["Recall"],
+      F1 = metricas["F1.Precision"],
+      AUC = auc_out,
+      Best_cp = opt_cp,
+      Best_minsplit = opt_minsplit,
+      Best_minbucket = opt_minbucket,
+      Variables = paste(variables_seleccionadas, collapse = ", ")
+    ))
+  }
+
+  return(resultados)
+}
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, eval=FALSE}
+
+# Definir hiperparámetros a probar
+cp_vals <- c(0.01, 0.005, 0.002)         # penalización más fina, pero no tan agresiva como 0.001
+minsplit_vals <- c(15, 25, 35)           # particiones razonables para 700 filas (~2–5% del dataset)
+minbucket_vals <- c(5, 10, 15)           # tamaño mínimo por hoja, evita overfitting por ramas pequeñas
+
+# Lista de variables predictoras (excluye RCP_BIN)
+variables_predictoras <- setdiff(names(datos), "Enfermedad")
+
+
+resultados_DT_wrapper <- decision_tree_2CV_wrapper(
+  datos = datos,
+  target = "Enfermedad",
+  outer = 5,       # validación cruzada externa con 5 folds
+  inner = 2,       # validación interna para selección de hiperparámetros y variables
+  cp_values = cp_vals,
+  minsplit_values = minsplit_vals,
+  minbucket_values = minbucket_vals,
+  variables = variables_predictoras
+)
+
+saveRDS(resultados_DT_wrapper, file = "resultados_DT_wrapper.rds")
+
+
+```
+
+
+```{r}
+
+
+resultados_DT_wrapper <- readRDS("resultados_DT_wrapper.rds")
+
+
+rownames(resultados_DT_wrapper) <- NULL
+
+
+kable(resultados_DT_wrapper, format = "html", align = "c", caption = "Resumen de los folds del ciclo externo con las variables filtradas con wrapper") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#e6ffe6") %>%  # Encabezado en verde claro
+  kableExtra::column_spec(1:ncol(resultados_DT_wrapper), background = "#f0fff0")  # Celdas verdes muy claras
+
+
+```
+# Comparación de modelos
+
+
+Aquí se comparan todos los resultados y se seleccionará el mejor modelo para implementarlo en la aplicación. Para cada combianción de algoritmo y tipo de selección se han calculado las medias de las métricas de los folds externos para poder compararlos:
+```{r}
+# Lista de archivos y sus descripciones
+archivos_info <- data.frame(
+  archivo = c(
+    "resultado_ANN_todasvariables", "resultado_ANN_filtrado", "resultado_ANN_wrapper",
+    "resultados_svm", "resultados_svm_filtrado", "resultados_svm_2CV_wrapper",
+    "resultado_DT_completo", "resultado_DT_filtrado", "resultados_DT_wrapper"
+  ),
+  algoritmo = c(rep("ANN", 3), rep("SVM", 3), rep("Decision Tree", 3)),
+  seleccion = rep(c("Ninguno", "Filtrado", "Wrapper"), 3),
+  stringsAsFactors = FALSE
+)
+
+# Función para calcular métricas promedio por archivo
+resumen_metricas <- function(nombre_objeto, algoritmo, seleccion) {
+  resultados <- get(nombre_objeto)
+  data.frame(
+    Algoritmo = algoritmo,
+    Seleccion = seleccion,
+    Accuracy = mean(resultados$Accuracy, na.rm = TRUE),
+    Precision = mean(resultados$Precision, na.rm = TRUE),
+    Recall = mean(resultados$Recall, na.rm = TRUE),
+    F1 = mean(resultados$F1, na.rm = TRUE),
+    AUC = mean(resultados$AUC, na.rm = TRUE)
+  )
+}
+
+# Cargar los archivos y crear la tabla
+tabla_resultados <- do.call(rbind, lapply(1:nrow(archivos_info), function(i) {
+  load_name <- archivos_info$archivo[i]
+  assign(load_name, readRDS(paste0(load_name, ".rds")))
+  resumen_metricas(load_name, archivos_info$algoritmo[i], archivos_info$seleccion[i])
+}))
+
+
+
+
+# Quitar nombres de fila antes de pasar a kable
+tabla_resultados_actualizada_sin_rownames <- tabla_resultados
+rownames(tabla_resultados_actualizada_sin_rownames) <- NULL
+
+
+tabla_resultados_actualizada_sin_rownames %>%
+  kbl(digits = 3, caption = "Comparación de Modelos por Métricas") %>%
+  kable_styling(
+    full_width = TRUE,
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  row_spec(0, bold = TRUE, background = "#FFF68F") %>%
+  row_spec(1:(nrow(tabla_resultados_actualizada_sin_rownames) - 1), background = "#FFFBCC") %>%
+  row_spec(nrow(tabla_resultados_actualizada_sin_rownames), background = "#FAFAD2")
+
+
+```
+
+
+Entre los modelos evaluados, el mejor desempeño general lo obtuvo la **red neuronal artificial (ANN) sin selección de variables**. Este modelo alcanzó el mayor valor de AUC (`0.843`), indicando una excelente capacidad para discriminar entre clases. Además, presentó un F1-score de `0.791`, un recall de `0.839` y una precisión de `0.749`, lo cual refleja un equilibrio adecuado entre la detección de positivos y la reducción de falsos positivos.
+
+Por otro lado, el modelo **SVM sin selección de variables** también mostró un desempeño competitivo, con un AUC de `0.829` y un F1-score de `0.785`. Este modelo logró la mayor precisión (`0.791`), aunque con un recall más bajo (`0.780`) en comparación con la ANN. En este caso, si se priorizara la precisión por encima de la sensibilidad, podría considerarse una opción viable. 
+
+La red neuronal con las variables seleccionadas mediante el filtrol presenta un rendimiento relativamente similar a este modelo.
+
+Por otro lado, los modelos basados en  **árboles de decisión ** muestran un desempeño peor en todas las métricas evaluadas, especialmente en recall y F1 (valores entre 0.738 y 0.752), lo que sugiere una menor capacidad para capturar correctamente los positivos. 
+
+En conclusión, considerando el desbalance en las clases y el objetivo de lograr una buena capacidad de discriminación, el modelo más recomendable es la **red neuronal con todas las variables**, debido a su excelente AUC (`0.843`) y buen equilibrio entre precisión y recall.
+
+#### Selección de hiperparámetros
+
+Para implementar el modelo final usando las redes neuronales artificiales es necesario analizar los hiperparámetros seleccionados durante la validación cruzada para ver qué combinación es la más adecuada.
+
+```{r}
+
+# Solo extraemos los folds y los hiperparámetros
+tabla_hipr <- resultado_ANN_todasvariables[, c("Fold", "Best_Decay", "Best_Size")]
+
+rownames(tabla_hipr) <- NULL  
+
+# Mostrar con estilo en HTML
+kable(tabla_hipr, format = "html", align = "c",
+      caption = "Hiperparámetros seleccionadas por fold en el ciclo externo") %>%
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, background = "#ffe6f0") %>%  # Encabezado rosita claro
+  column_spec(1:ncol(tabla_hipr), background = "#fff0f5")  # Celdas rositas muy claras
+
+```
+
+Según la tabla, hay bastante variedad entre los folds respecto a los hiperparámetros. Sin embargo, la combinación que más parece repetirse es una penalización de `0.2`y `5` neuronas en la capa oculta.
+
+Esto sugiere que una configuración con **5 neuronas ocultas y un valor de decay de 0.2** podría ofrecer un buen equilibrio entre la capacidad del modelo para aprender patrones y su habilidad para generalizar a nuevos datos.
+
+Por esto, en la implementación del modelo final se usarán estos valores para los hiperparámetros.
+
+
+# Modelo Final
+
+
+Finalmente, se va a implementar un modelo de predicción enferemdad cardiovascular usando un algoritmo basado en redes neuronales artificiales con 5 neuronas en la capa oculta y con una penalización de 0.2. El modelo sera entrenado utilizando todo el conjunto de datos.
+
+
+```{r, message=FALSE, eval=FALSE}
+
+modelo_nnet_final <- nnet(
+  Enfermedad ~., data = datos, size = 5, decay = 0.2 , model = TRUE)     
+
+saveRDS(modelo_nnet_final, "modelo_nnet_final.rds")
+```
+
+
+# Aplicación
+
+Para comprobar el funcionamiento de la app será necesario abrir el archivo app.R en rstudio y ejecutarlo todo (Run All).
+
+
+
+
+
