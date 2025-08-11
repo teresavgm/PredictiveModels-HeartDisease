@@ -23,7 +23,7 @@ Finally, all implemented models were compiled into a table and compared using di
 ![](https://github.com/teresavgm/PredictiveModels-HeartDisease/blob/main/TablaComparativa.PNG)
 
 
-# ApplicationS
+# Application
 
 Finally, an application was created where input variables can be entered to predict the risk of developing heart disease.
 
